@@ -8,16 +8,6 @@ export type CreateInvoiceInput = {
   nip?: string;
 };
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function paymentDeadlineISO(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 7);
-  return d.toISOString().slice(0, 10);
-}
-
 function extractPaymentLink(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
   const root = payload as Record<string, unknown>;
@@ -66,7 +56,22 @@ export async function createInvoiceWithOnlinePayment(
   apiKey: string,
   baseUrl: string,
   input: CreateInvoiceInput,
-  service: { name: string; netPricePln: number; taxPercent: 23 }
+  service: {
+    name: string;
+    /** Liczba sztuk (np. zdjęć). */
+    quantity: number;
+    /** Cena netto jednej sztuki w PLN (API inFakt — grosze). */
+    unitNetPricePln: number;
+    taxPercent: 23;
+  },
+  dates: {
+    /** Data wystawienia faktury (YYYY-MM-DD). */
+    invoiceDate: string;
+    /** Data sprzedaży / świadczenia (YYYY-MM-DD). */
+    sellDate: string;
+    /** Termin płatności (YYYY-MM-DD). */
+    paymentTo: string;
+  }
 ): Promise<{ paymentUrl: string; invoiceUuid?: string }> {
   const normalizedBase = baseUrl.replace(/\/$/, "");
 
@@ -106,21 +111,23 @@ export async function createInvoiceWithOnlinePayment(
     throw new Error("inFakt: brak ID klienta w odpowiedzi");
   }
 
-  const netGrosze = Math.round(service.netPricePln * 100);
+  const qty = Math.max(1, Math.floor(service.quantity));
+  const unitNetGrosze = Math.round(service.unitNetPricePln * 100);
+  const lineNetGrosze = Math.round(unitNetGrosze * qty);
 
   const invoiceBody = {
     kind: "vat",
-    invoice_date: todayISO(),
-    sell_date: todayISO(),
-    payment_to: paymentDeadlineISO(),
+    invoice_date: dates.invoiceDate,
+    sell_date: dates.sellDate,
+    payment_to: dates.paymentTo,
     client_id: clientId,
     services: [
       {
         name: service.name,
-        quantity: 1,
+        quantity: qty,
         tax_symbol: String(service.taxPercent),
-        net_price: netGrosze,
-        unit_net_price: netGrosze,
+        net_price: lineNetGrosze,
+        unit_net_price: unitNetGrosze,
       },
     ],
   };

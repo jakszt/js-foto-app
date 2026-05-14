@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Camera, CalendarDays, Loader2 } from "lucide-react";
+import { Camera, CalendarDays, Loader2, Minus, Plus } from "lucide-react";
 import { Controller, useForm, useWatch } from "react-hook-form";
+import posthog from "posthog-js";
 
 import { FloatingField } from "@/components/floating-field";
 import { Button } from "@/components/ui/button";
@@ -20,11 +21,19 @@ import {
   checkoutFormSchema,
   type CheckoutFormValues,
 } from "@/lib/checkout-schema";
+import {
+  formatPln,
+  PHOTO_COUNT_MAX,
+  PHOTO_COUNT_MIN,
+  PHOTO_GROSS_PLN,
+  totalGrossPln,
+} from "@/lib/photo-checkout-pricing";
 import { cn } from "@/lib/utils";
 
 type Step = "tiles" | "billing" | "paying";
 
 const defaultValues: CheckoutFormValues = {
+  photoCount: 1,
   fullName: "",
   email: "",
   street: "",
@@ -35,6 +44,15 @@ const defaultValues: CheckoutFormValues = {
 };
 
 function isFormComplete(values: CheckoutFormValues): boolean {
+  const n = values.photoCount;
+  if (
+    typeof n !== "number" ||
+    !Number.isInteger(n) ||
+    n < PHOTO_COUNT_MIN ||
+    n > PHOTO_COUNT_MAX
+  ) {
+    return false;
+  }
   const base =
     values.fullName.trim().length >= 2 &&
     values.email.includes("@") &&
@@ -59,10 +77,15 @@ export function PhotographerCheckout() {
   });
 
   const watched = useWatch({ control: form.control });
-  const complete = useMemo(
-    () => isFormComplete({ ...defaultValues, ...watched } as CheckoutFormValues),
-    [watched]
-  );
+  const photoCount =
+    typeof watched?.photoCount === "number"
+      ? watched.photoCount
+      : defaultValues.photoCount;
+  const totalBrutto = totalGrossPln(photoCount);
+  const complete = useMemo(() => {
+    const merged = { ...defaultValues, ...watched } as CheckoutFormValues;
+    return isFormComplete(merged);
+  }, [watched]);
 
   useEffect(() => {
     if (step !== "billing") return;
@@ -74,11 +97,22 @@ export function PhotographerCheckout() {
   async function onPay(values: CheckoutFormValues) {
     setApiError(null);
     setStep("paying");
+
+    posthog.identify(values.email);
+    posthog.capture("checkout_payment_submitted", {
+      is_company: values.isCompany,
+      photo_count: values.photoCount,
+    });
+
     try {
       const formStartedAt = billingOpenedAtRef.current ?? Date.now();
       const res = await fetch("/api/checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-POSTHOG-DISTINCT-ID": posthog.get_distinct_id(),
+          "X-POSTHOG-SESSION-ID": posthog.get_session_id() ?? "",
+        },
         body: JSON.stringify({
           ...values,
           nip: values.isCompany ? values.nip : undefined,
@@ -92,7 +126,10 @@ export function PhotographerCheckout() {
       }
       window.location.assign(data.paymentUrl);
     } catch (e) {
-      setApiError(e instanceof Error ? e.message : "Wystąpił błąd");
+      const message = e instanceof Error ? e.message : "Wystąpił błąd";
+      posthog.capture("checkout_payment_error", { error: message });
+      posthog.captureException(e);
+      setApiError(message);
       setStep("billing");
     }
   }
@@ -120,6 +157,7 @@ export function PhotographerCheckout() {
             onClick={() => {
               billingOpenedAtRef.current = Date.now();
               setStep("billing");
+              posthog.capture("checkout_session_started");
             }}
             className={cn(
               "group rounded-xl text-left transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--accent)_45%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -263,20 +301,93 @@ export function PhotographerCheckout() {
               </div>
 
               <Controller
-                  control={form.control}
-                  name="isCompany"
-                  render={({ field }) => (
-                    <label className="flex cursor-pointer select-none flex-wrap items-center gap-3 rounded-lg border border-border/80 bg-muted/30 px-3 py-3">
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={(v) => field.onChange(v === true)}
-                      />
-                      <span className="text-sm font-medium leading-snug">
-                        Faktura na firmę
+                control={form.control}
+                name="photoCount"
+                render={({ field }) => (
+                  <div className="rounded-xl border border-border/80 bg-muted/20 px-4 py-4">
+                    <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                      <span
+                        id="photo-count-label"
+                        className="text-sm font-medium text-foreground"
+                      >
+                        Ile zdjęć kupujesz?
                       </span>
-                    </label>
-                  )}
-                />
+                      <span className="text-xs text-muted-foreground">
+                        {PHOTO_GROSS_PLN} zł brutto / szt. (VAT 23%)
+                      </span>
+                    </div>
+                    <div
+                      className="flex items-center justify-center gap-3 sm:justify-start"
+                      role="group"
+                      aria-labelledby="photo-count-label"
+                      aria-describedby="photo-count-stepper-desc"
+                    >
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="size-11 shrink-0 rounded-full border-foreground/15 shadow-sm"
+                        aria-label="Mniej zdjęć"
+                        disabled={field.value <= PHOTO_COUNT_MIN}
+                        onClick={() =>
+                          field.onChange(
+                            Math.max(PHOTO_COUNT_MIN, field.value - 1)
+                          )
+                        }
+                      >
+                        <Minus className="size-4" aria-hidden />
+                      </Button>
+                      <span
+                        id="photo-count-value"
+                        className="min-w-[3.5rem] text-center text-2xl font-semibold tabular-nums tracking-tight text-foreground"
+                        aria-live="polite"
+                        aria-atomic="true"
+                      >
+                        {field.value}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="size-11 shrink-0 rounded-full border-foreground/15 shadow-sm"
+                        aria-label="Więcej zdjęć"
+                        disabled={field.value >= PHOTO_COUNT_MAX}
+                        onClick={() =>
+                          field.onChange(
+                            Math.min(PHOTO_COUNT_MAX, field.value + 1)
+                          )
+                        }
+                      >
+                        <Plus className="size-4" aria-hidden />
+                      </Button>
+                    </div>
+                    <p id="photo-count-stepper-desc" className="sr-only">
+                      Liczba zdjęć od {PHOTO_COUNT_MIN} do {PHOTO_COUNT_MAX}
+                    </p>
+                    {form.formState.errors.photoCount ? (
+                      <p className="mt-2 text-xs text-destructive">
+                        {form.formState.errors.photoCount.message}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+              />
+
+              <Controller
+                control={form.control}
+                name="isCompany"
+                render={({ field }) => (
+                  <label className="flex cursor-pointer select-none flex-wrap items-center gap-3 rounded-lg border border-border/80 bg-muted/30 px-3 py-3">
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={(v) => field.onChange(v === true)}
+                    />
+                    <span className="text-sm font-medium leading-snug">
+                      Faktura na firmę
+                    </span>
+                  </label>
+                )}
+              />
 
               {form.watch("isCompany") ? (
                 <FloatingField
@@ -294,6 +405,18 @@ export function PhotographerCheckout() {
                 </p>
               ) : null}
 
+              <div
+                className="flex flex-col gap-1 rounded-lg border border-[color-mix(in_oklab,var(--accent)_25%,var(--border))] bg-[color-mix(in_oklab,var(--accent)_8%,var(--card))] px-4 py-3 sm:flex-row sm:items-baseline sm:justify-between"
+                aria-live="polite"
+              >
+                <span className="text-sm text-muted-foreground">
+                  {photoCount} × {PHOTO_GROSS_PLN} zł brutto
+                </span>
+                <span className="text-lg font-bold tabular-nums text-foreground">
+                  Razem {formatPln(totalBrutto)}
+                </span>
+              </div>
+
               {apiError ? (
                 <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                   {apiError}
@@ -308,6 +431,7 @@ export function PhotographerCheckout() {
                   onClick={() => {
                     setStep("tiles");
                     setApiError(null);
+                    posthog.capture("checkout_back_clicked");
                   }}
                 >
                   ← Wróć

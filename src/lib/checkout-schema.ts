@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { PHOTO_COUNT_MAX, PHOTO_COUNT_MIN } from "@/lib/photo-checkout-pricing";
+
 const plPostal = /^\d{2}-\d{3}$/;
 
 function nipDigits(nip: string): string {
@@ -20,6 +22,11 @@ function isValidNipFormat(nip: string): boolean {
 
 export const checkoutFormSchema = z
   .object({
+    photoCount: z
+      .number()
+      .int("Podaj liczbę całkowitą")
+      .min(PHOTO_COUNT_MIN, `Minimum ${PHOTO_COUNT_MIN} zdjęcie`)
+      .max(PHOTO_COUNT_MAX, `Maksimum ${PHOTO_COUNT_MAX} zdjęć`),
     fullName: z.string().trim().min(2, "Podaj imię i nazwisko"),
     email: z.string().trim().email("Podaj poprawny adres e-mail"),
     street: z.string().trim().min(2, "Podaj ulicę i numer"),
