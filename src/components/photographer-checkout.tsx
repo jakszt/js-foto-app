@@ -30,7 +30,10 @@ import {
 } from "@/lib/photo-checkout-pricing";
 import { cn } from "@/lib/utils";
 
-type Step = "tiles" | "billing" | "paying";
+const GOOGLE_BOOKING_IFRAME_SRC =
+  "https://calendar.google.com/calendar/appointments/schedules/AcZssZ2xWPDJbzLQyJba_ZPPei1f80ldgfA3svVG_qweYkROYefo6aPkAUDnhWZxPAuXSQNNWI67WayH?gv=true";
+
+type Step = "tiles" | "booking" | "billing" | "paying";
 
 const defaultValues: CheckoutFormValues = {
   photoCount: 1,
@@ -179,31 +182,73 @@ export function PhotographerCheckout() {
             </Card>
           </button>
 
-          <div className="flex flex-col gap-4">
-            <Card className="h-full border border-transparent bg-card/90 shadow-sm ring-1 ring-foreground/10">
+          <button
+            type="button"
+            onClick={() => {
+              setStep("booking");
+              posthog.capture("checkout_booking_opened");
+            }}
+            className={cn(
+              "group rounded-xl text-left transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--accent)_45%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            )}
+          >
+            <Card className="h-full border border-transparent bg-card/90 shadow-sm ring-1 ring-foreground/10 transition-[box-shadow,ring-color] duration-200 group-hover:shadow-md group-hover:ring-[color-mix(in_oklab,var(--accent)_35%,var(--foreground))]/25">
               <CardHeader>
                 <div className="mb-1 flex size-11 items-center justify-center rounded-lg bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[color-mix(in_oklab,var(--accent)_88%,var(--foreground))]">
                   <CalendarDays className="size-5" aria-hidden />
                 </div>
                 <CardTitle className="text-lg">Chcę umówić sesję</CardTitle>
                 <CardDescription>
-                  Wybierz dogodny termin w kalendarzu poniżej — potwierdzenie dostaniesz mailem od
-                  Google Calendar.
+                  Otwórz kalendarz rezerwacji — wybierz termin, potwierdzenie wyśle Google Calendar.
                 </CardDescription>
               </CardHeader>
+              <CardFooter className="text-sm font-medium text-[color-mix(in_oklab,var(--accent)_78%,var(--foreground))]">
+                Umów termin →
+              </CardFooter>
             </Card>
-            <div className="overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
+          </button>
+        </div>
+      ) : null}
+
+      {step === "booking" ? (
+        <Card className="overflow-hidden border border-transparent shadow-md ring-1 ring-foreground/10">
+          <CardHeader className="space-y-4">
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-fit -translate-x-2 text-muted-foreground"
+              onClick={() => {
+                setStep("tiles");
+                posthog.capture("checkout_booking_back");
+              }}
+            >
+              ← Wróć
+            </Button>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-3">
+                <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[color-mix(in_oklab,var(--accent)_88%,var(--foreground))]">
+                  <CalendarDays className="size-5" aria-hidden />
+                </div>
+                <CardTitle className="text-xl">Umów sesję</CardTitle>
+              </div>
+              <CardDescription className="text-base">
+                Wybierz dogodny slot poniżej — po zapisie dostaniesz wiadomość z potwierdzeniem.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="px-0 pb-0 pt-0 sm:px-6 sm:pb-6">
+            <div className="overflow-hidden border-t border-border bg-card sm:rounded-xl sm:border sm:shadow-sm sm:ring-1 sm:ring-foreground/10">
               <iframe
                 title="Umów sesję — Google Calendar"
-                src="https://calendar.google.com/calendar/appointments/schedules/AcZssZ2xWPDJbzLQyJba_ZPPei1f80ldgfA3svVG_qweYkROYefo6aPkAUDnhWZxPAuXSQNNWI67WayH?gv=true"
+                src={GOOGLE_BOOKING_IFRAME_SRC}
                 className="block min-h-[600px] w-full border-0"
                 width="100%"
                 height={600}
                 loading="lazy"
               />
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       ) : null}
 
       {step === "billing" ? (
