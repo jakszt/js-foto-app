@@ -16,7 +16,22 @@ import {
   isMailjetSendConfigured,
   sendMailjetMessage,
 } from "@/lib/mailjet";
-import { getPostHogClient } from "@/lib/posthog-server";
+import type { PostHog } from "posthog-node";
+
+import { getOptionalPostHog } from "@/lib/posthog-server";
+
+async function shutdownPosthogSafely(
+  client: PostHog | null,
+  fn: (c: PostHog) => void
+): Promise<void> {
+  if (!client) return;
+  try {
+    fn(client);
+    await client.shutdown();
+  } catch (e) {
+    console.error("[checkout] PostHog:", e);
+  }
+}
 
 export async function POST(req: Request) {
   const apiKey = process.env.INFAKT_API_KEY;
@@ -69,7 +84,7 @@ export async function POST(req: Request) {
     req.headers.get("X-POSTHOG-DISTINCT-ID") || parsed.data.email;
   const sessionId = req.headers.get("X-POSTHOG-SESSION-ID") || undefined;
 
-  const posthog = getPostHogClient();
+  const posthog = getOptionalPostHog();
 
   try {
     const { paymentUrl, invoiceUuid } = await createInvoiceWithOnlinePayment(
@@ -103,19 +118,20 @@ export async function POST(req: Request) {
       infakt_error: null,
     });
 
-    posthog.capture({
-      distinctId,
-      event: "checkout_invoice_created",
-      properties: {
-        invoice_uuid: invoiceUuid ?? null,
-        is_company: parsed.data.isCompany,
-        photo_count: parsed.data.photoCount,
-        gross_total_pln: grossTotal,
-        net_line_pln: lineNet,
-        ...(sessionId ? { $session_id: sessionId } : {}),
-      },
+    await shutdownPosthogSafely(posthog, (c) => {
+      c.capture({
+        distinctId,
+        event: "checkout_invoice_created",
+        properties: {
+          invoice_uuid: invoiceUuid ?? null,
+          is_company: parsed.data.isCompany,
+          photo_count: parsed.data.photoCount,
+          gross_total_pln: grossTotal,
+          net_line_pln: lineNet,
+          ...(sessionId ? { $session_id: sessionId } : {}),
+        },
+      });
     });
-    await posthog.shutdown();
 
     if (isMailjetSendConfigured()) {
       let attachments:
@@ -166,16 +182,17 @@ export async function POST(req: Request) {
       infakt_error: message,
     });
 
-    posthog.capture({
-      distinctId,
-      event: "checkout_invoice_failed",
-      properties: {
-        error: message,
-        is_company: parsed.data.isCompany,
-        ...(sessionId ? { $session_id: sessionId } : {}),
-      },
+    await shutdownPosthogSafely(posthog, (c) => {
+      c.capture({
+        distinctId,
+        event: "checkout_invoice_failed",
+        properties: {
+          error: message,
+          is_company: parsed.data.isCompany,
+          ...(sessionId ? { $session_id: sessionId } : {}),
+        },
+      });
     });
-    await posthog.shutdown();
 
     return NextResponse.json({ error: message }, { status: 502 });
   }

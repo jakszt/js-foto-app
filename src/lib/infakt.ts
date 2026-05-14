@@ -38,6 +38,20 @@ function cleanNip(nip: string): string {
   return nip.replace(/\D/g, "");
 }
 
+async function readJsonBody(res: Response): Promise<unknown> {
+  const text = await res.text();
+  if (!text.trim()) {
+    throw new Error(`inFakt: pusta odpowiedź (HTTP ${res.status})`);
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new Error(
+      `inFakt: odpowiedź nie jest JSON (HTTP ${res.status}): ${text.slice(0, 240)}`
+    );
+  }
+}
+
 function readClientId(json: unknown): number | null {
   if (!json || typeof json !== "object") return null;
   const o = json as Record<string, unknown>;
@@ -104,7 +118,7 @@ export async function createInvoiceWithOnlinePayment(
     );
   }
 
-  const clientJson = (await clientRes.json()) as Record<string, unknown>;
+  const clientJson = (await readJsonBody(clientRes)) as Record<string, unknown>;
   const clientId = readClientId(clientJson);
 
   if (clientId == null) {
@@ -148,7 +162,7 @@ export async function createInvoiceWithOnlinePayment(
     );
   }
 
-  const invJson = await invRes.json();
+  const invJson = await readJsonBody(invRes);
   const paymentUrl = extractPaymentLink(invJson);
 
   if (!paymentUrl) {

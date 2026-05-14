@@ -123,7 +123,24 @@ export function PhotographerCheckout() {
           formStartedAt,
         }),
       });
-      const data = (await res.json()) as { paymentUrl?: string; error?: string };
+      const raw = await res.text();
+      const trimmed = raw.trim();
+      let data: { paymentUrl?: string; error?: string };
+      if (trimmed) {
+        try {
+          data = JSON.parse(trimmed) as { paymentUrl?: string; error?: string };
+        } catch {
+          throw new Error(
+            `Serwer zwrócił odpowiedź, której nie da się odczytać (HTTP ${res.status}). Spróbuj ponownie.`
+          );
+        }
+      } else {
+        throw new Error(
+          res.ok
+            ? "Serwer zwrócił pustą odpowiedź — odśwież stronę i spróbuj ponownie."
+            : `Żądanie nie powiodło się (HTTP ${res.status}). Spróbuj ponownie.`
+        );
+      }
       if (!res.ok || !data.paymentUrl) {
         throw new Error(data.error ?? "Nie udało się przygotować płatności");
       }
