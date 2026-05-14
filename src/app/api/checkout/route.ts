@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { validateCheckoutAntiBot } from "@/lib/checkout-anti-bot";
 import { persistFotoRozliczenie } from "@/lib/checkout-persistence";
 import { checkoutFormSchema } from "@/lib/checkout-schema";
-import { createInvoiceWithOnlinePayment } from "@/lib/infakt";
+import { createInvoiceWithOnlinePayment, fetchInvoicePdfBase64 } from "@/lib/infakt";
 import {
   INFAKT_LINE_ITEM_NAME,
   lineNetTotalPln,
@@ -118,11 +118,32 @@ export async function POST(req: Request) {
     await posthog.shutdown();
 
     if (isMailjetSendConfigured()) {
+      let attachments:
+        | { ContentType: string; Filename: string; Base64Content: string }[]
+        | undefined;
+      let pdfAttached = false;
+      if (invoiceUuid) {
+        const pdf = await fetchInvoicePdfBase64(apiKey, baseUrl, invoiceUuid);
+        if (pdf) {
+          attachments = [
+            {
+              ContentType: "application/pdf",
+              Filename: pdf.filename,
+              Base64Content: pdf.base64,
+            },
+          ];
+          pdfAttached = true;
+        } else {
+          console.warn("[checkout] Nie udało się pobrać PDF faktury do załącznika.");
+        }
+      }
+
       const { subject, textPart, htmlPart } = buildCheckoutPaymentEmail({
         fullName: parsed.data.fullName,
         paymentUrl,
         photoCount: parsed.data.photoCount,
         totalGrossPln: grossTotal,
+        pdfAttached,
       });
       void sendMailjetMessage({
         to: [{ email: parsed.data.email, name: parsed.data.fullName }],
@@ -130,6 +151,7 @@ export async function POST(req: Request) {
         textPart,
         htmlPart,
         customId: invoiceUuid ?? undefined,
+        attachments,
       }).then((r) => {
         if (!r.ok) console.error("[checkout] Mailjet:", r.error);
       });

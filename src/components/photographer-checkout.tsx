@@ -179,23 +179,29 @@ export function PhotographerCheckout() {
             </Card>
           </button>
 
-          <div
-            className="relative rounded-xl opacity-[0.42] saturate-[0.65]"
-            aria-disabled="true"
-            title="Wkrótce"
-          >
-            <Card className="h-full cursor-not-allowed bg-muted/40 shadow-none ring-1 ring-foreground/10">
+          <div className="flex flex-col gap-4">
+            <Card className="h-full border border-transparent bg-card/90 shadow-sm ring-1 ring-foreground/10">
               <CardHeader>
-                <div className="mb-1 flex size-11 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <div className="mb-1 flex size-11 items-center justify-center rounded-lg bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[color-mix(in_oklab,var(--accent)_88%,var(--foreground))]">
                   <CalendarDays className="size-5" aria-hidden />
                 </div>
                 <CardTitle className="text-lg">Chcę umówić sesję</CardTitle>
-                <CardDescription>Na razie niedostępne — wrócimy z rezerwacją.</CardDescription>
+                <CardDescription>
+                  Wybierz dogodny termin w kalendarzu poniżej — potwierdzenie dostaniesz mailem od
+                  Google Calendar.
+                </CardDescription>
               </CardHeader>
-              <CardFooter className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                W przygotowaniu
-              </CardFooter>
             </Card>
+            <div className="overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
+              <iframe
+                title="Umów sesję — Google Calendar"
+                src="https://calendar.google.com/calendar/appointments/schedules/AcZssZ2xWPDJbzLQyJba_ZPPei1f80ldgfA3svVG_qweYkROYefo6aPkAUDnhWZxPAuXSQNNWI67WayH?gv=true"
+                className="block min-h-[600px] w-full border-0"
+                width="100%"
+                height={600}
+                loading="lazy"
+              />
+            </div>
           </div>
         </div>
       ) : null}

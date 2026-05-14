@@ -166,3 +166,68 @@ export async function createInvoiceWithOnlinePayment(
 
   return { paymentUrl, invoiceUuid: uuid };
 }
+
+/** PDF faktury do załącznika w mailu (GET …/pdf.json). */
+export async function fetchInvoicePdfBase64(
+  apiKey: string,
+  baseUrl: string,
+  invoiceUuid: string
+): Promise<{ base64: string; filename: string } | null> {
+  const normalizedBase = baseUrl.replace(/\/$/, "");
+  const url = `${normalizedBase}/invoices/${encodeURIComponent(invoiceUuid)}/pdf.json?document_type=original`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json, application/pdf;q=0.9,*/*;q=0.8",
+      "X-inFakt-ApiKey": apiKey,
+    },
+  });
+
+  if (!res.ok) {
+    console.warn("[infakt] PDF:", res.status, (await res.text()).slice(0, 200));
+    return null;
+  }
+
+  const ct = (res.headers.get("content-type") ?? "").toLowerCase();
+  const filename = `faktura-${invoiceUuid.slice(0, 8)}.pdf`;
+
+  if (ct.includes("application/pdf")) {
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 64) return null;
+    return { base64: buf.toString("base64"), filename };
+  }
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    return null;
+  }
+
+  const extractB64 = (o: unknown): string | null => {
+    if (!o || typeof o !== "object") return null;
+    const r = o as Record<string, unknown>;
+    for (const k of ["pdf", "content", "data", "file"]) {
+      const v = r[k];
+      if (typeof v === "string" && v.length > 64) return v.replace(/\s/g, "");
+    }
+    const inv = r.invoice;
+    if (inv && typeof inv === "object") {
+      const inner = inv as Record<string, unknown>;
+      for (const k of ["pdf", "content"]) {
+        const v = inner[k];
+        if (typeof v === "string" && v.length > 64) return v.replace(/\s/g, "");
+      }
+    }
+    return null;
+  };
+
+  const b64 = extractB64(json);
+  if (!b64) {
+    console.warn("[infakt] PDF: brak base64 w odpowiedzi JSON");
+    return null;
+  }
+
+  return { base64: b64, filename };
+}
