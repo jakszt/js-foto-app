@@ -10,8 +10,9 @@ const lexend = Lexend({
 });
 
 export const metadata: Metadata = {
-  title: "Jakub Sztuba — rozliczenie po sesji",
-  description: "Opłać zdjęcia po sesji fotograficznej — szybka płatność online przez inFakt.",
+  title: "Jakub Sztuba",
+  description:
+    "Content marketing, strony, e-commerce, automatyzacja marketingu i sprzedaży.",
 };
 
 export default function RootLayout({

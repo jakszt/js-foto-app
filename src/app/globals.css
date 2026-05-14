@@ -128,3 +128,18 @@
     @apply font-sans;
   }
 }
+
+@keyframes home-marquee-scroll {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+@layer components {
+  .home-services-scroll {
+    animation: home-marquee-scroll 28s linear infinite;
+  }
+}

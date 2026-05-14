@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Camera, CalendarDays, Loader2 } from "lucide-react";
 import { Controller, useForm, useWatch } from "react-hook-form";
@@ -49,6 +49,8 @@ function isFormComplete(values: CheckoutFormValues): boolean {
 export function PhotographerCheckout() {
   const [step, setStep] = useState<Step>("tiles");
   const [apiError, setApiError] = useState<string | null>(null);
+  const billingOpenedAtRef = useRef<number | null>(null);
+  const honeypotRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<CheckoutFormValues>({
     resolver: zodResolver(checkoutFormSchema),
@@ -62,16 +64,26 @@ export function PhotographerCheckout() {
     [watched]
   );
 
+  useEffect(() => {
+    if (step !== "billing") return;
+    if (billingOpenedAtRef.current == null) {
+      billingOpenedAtRef.current = Date.now();
+    }
+  }, [step]);
+
   async function onPay(values: CheckoutFormValues) {
     setApiError(null);
     setStep("paying");
     try {
+      const formStartedAt = billingOpenedAtRef.current ?? Date.now();
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...values,
           nip: values.isCompany ? values.nip : undefined,
+          venueUrl: honeypotRef.current?.value ?? "",
+          formStartedAt,
         }),
       });
       const data = (await res.json()) as { paymentUrl?: string; error?: string };
@@ -105,7 +117,10 @@ export function PhotographerCheckout() {
         <div className="grid gap-4 sm:grid-cols-2">
           <button
             type="button"
-            onClick={() => setStep("billing")}
+            onClick={() => {
+              billingOpenedAtRef.current = Date.now();
+              setStep("billing");
+            }}
             className={cn(
               "group rounded-xl text-left transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--accent)_45%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             )}
@@ -158,10 +173,26 @@ export function PhotographerCheckout() {
           </CardHeader>
           <CardContent>
             <form
-              className="space-y-5"
+              className="relative space-y-5"
               onSubmit={form.handleSubmit(onPay)}
               noValidate
             >
+              <div
+                className="pointer-events-none absolute -left-[10000px] h-px w-px overflow-hidden opacity-0"
+                aria-hidden="true"
+              >
+                <label htmlFor="checkout-venue-url">Strona WWW firmy</label>
+                <input
+                  ref={honeypotRef}
+                  id="checkout-venue-url"
+                  type="text"
+                  name="venueUrl"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  defaultValue=""
+                />
+              </div>
+
               <FloatingField
                 label="Imię i nazwisko"
                 autoComplete="name"
