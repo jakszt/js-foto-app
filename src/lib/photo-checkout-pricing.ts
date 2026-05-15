@@ -1,5 +1,5 @@
 /** Cena jednego zdjęcia — brutto (PLN). */
-export const PHOTO_GROSS_PLN = 40;
+export const PHOTO_GROSS_PLN = 30;
 
 export const PHOTO_COUNT_MIN = 1;
 export const PHOTO_COUNT_MAX = 20;

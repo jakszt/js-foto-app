@@ -3,6 +3,7 @@ import {
   escapeHtml,
   wrapTransactionalHtml,
 } from "@/lib/mailjet-templates";
+import { PHOTO_GROSS_PLN } from "@/lib/photo-checkout-pricing";
 
 const MAILJET_SEND_URL = "https://api.mailjet.com/v3.1/send";
 
@@ -106,6 +107,7 @@ export function buildCheckoutPaymentEmail(opts: {
   const safeName = escapeHtml(opts.fullName);
   const safeUrl = escapeHtml(opts.paymentUrl);
   const safeTotal = escapeHtml(totalFmt);
+  const unitGrossLabel = `${PHOTO_GROSS_PLN} zł`;
 
   const pdfNote = opts.pdfAttached
     ? "\n\nW załączeniu przesyłamy fakturę w formacie PDF."
@@ -115,7 +117,7 @@ export function buildCheckoutPaymentEmail(opts: {
 
 dziękujemy — przygotowaliśmy fakturę i płatność online.
 
-Zamówienie: ${opts.photoCount} ${zdj} × 40 zł brutto = ${totalFmt}
+Zamówienie: ${opts.photoCount} ${zdj} × ${unitGrossLabel} brutto = ${totalFmt}
 
 Otwórz bezpieczny link do opłacenia:
 ${opts.paymentUrl}
@@ -134,7 +136,7 @@ Jeśli to nie Ty wypełniałeś formularz, zignoruj tę wiadomość.
   const innerHtml = `
               <p style="margin:0 0 14px 0;">Cześć <strong>${safeName}</strong>,</p>
               <p style="margin:0 0 18px 0;">Dziękujemy — przygotowaliśmy fakturę i płatność online.</p>
-              <p style="margin:0 0 22px 0;"><strong>${opts.photoCount}</strong> × 40 zł brutto = <strong style="color:#37352f;">${safeTotal}</strong></p>
+              <p style="margin:0 0 22px 0;"><strong>${opts.photoCount}</strong> × ${unitGrossLabel} brutto = <strong style="color:#37352f;">${safeTotal}</strong></p>
               <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 8px 0;">
                 <tr>
                   <td style="border-radius:10px;background:#d97757;">
