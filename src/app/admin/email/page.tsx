@@ -19,7 +19,7 @@ const SAMPLE = {
   fullName: "Jan Kowalski",
   paymentUrl: "https://example.infakt.pl/platnosc/przykladowy-link",
   photoCount: 3,
-  totalGrossPln: 120,
+  totalGrossPln: 90,
 } as const;
 
 function EmailPreviewBlock({
