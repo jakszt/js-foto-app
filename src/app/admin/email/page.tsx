@@ -18,7 +18,7 @@ type Search = { key?: string | string[] };
 const SAMPLE = {
   fullName: "Jan Kowalski",
   paymentUrl: "https://example.infakt.pl/platnosc/przykladowy-link",
-  photoCount: 3,
+  photoCount: 4,
   totalGrossPln: 90,
 } as const;
 

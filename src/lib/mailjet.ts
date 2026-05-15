@@ -3,7 +3,12 @@ import {
   escapeHtml,
   wrapTransactionalHtml,
 } from "@/lib/mailjet-templates";
-import { PHOTO_GROSS_PLN } from "@/lib/photo-checkout-pricing";
+import {
+  billablePhotoCount,
+  formatPln,
+  PHOTO_GROSS_PLN,
+  PROMO_AVG_GROSS_FULL_GROUP_PLN,
+} from "@/lib/photo-checkout-pricing";
 
 const MAILJET_SEND_URL = "https://api.mailjet.com/v3.1/send";
 
@@ -106,7 +111,20 @@ export function buildCheckoutPaymentEmail(opts: {
   const zdj = zdjecieWord(opts.photoCount);
   const safeName = escapeHtml(opts.fullName);
   const safeUrl = escapeHtml(opts.paymentUrl);
-  const safeTotal = escapeHtml(totalFmt);
+
+  const billable = billablePhotoCount(opts.photoCount);
+  const free = opts.photoCount - billable;
+  const avgBrutto =
+    opts.photoCount > 0 ? opts.totalGrossPln / opts.photoCount : PHOTO_GROSS_PLN;
+  const orderPlain =
+    free > 0
+      ? `${opts.photoCount} ${zdj}: ${billable} płatnych × ${PHOTO_GROSS_PLN} zł brutto (${free} gratis) = ${totalFmt}. ${
+          opts.photoCount >= 4 && opts.photoCount % 4 === 0
+            ? `Średnio ${PROMO_AVG_GROSS_FULL_GROUP_PLN.toFixed(2).replace(".", ",")} zł brutto/szt. (promocja 3+1).`
+            : `Średnio ${formatPln(avgBrutto)} brutto/szt. (promocja 3+1).`
+        }`
+      : `${opts.photoCount} ${zdj} × ${PHOTO_GROSS_PLN} zł brutto = ${totalFmt}`;
+  const safeOrder = escapeHtml(orderPlain);
 
   const pdfNote = opts.pdfAttached
     ? "\n\nW załączeniu przesyłamy fakturę w formacie PDF."
@@ -116,7 +134,7 @@ export function buildCheckoutPaymentEmail(opts: {
 
 dziękujemy — przygotowaliśmy fakturę i płatność online.
 
-Zamówienie: ${opts.photoCount} ${zdj} × ${PHOTO_GROSS_PLN} zł brutto = ${totalFmt}
+Zamówienie: ${orderPlain}
 
 Otwórz bezpieczny link do opłacenia:
 ${opts.paymentUrl}
@@ -135,7 +153,7 @@ Jeśli to nie Ty wypełniałeś formularz, zignoruj tę wiadomość.
   const innerHtml = `
               <p style="margin:0 0 14px 0;">Cześć <strong>${safeName}</strong>,</p>
               <p style="margin:0 0 18px 0;">Dziękujemy — przygotowaliśmy fakturę i płatność online.</p>
-              <p style="margin:0 0 22px 0;"><strong>${opts.photoCount}</strong> × ${PHOTO_GROSS_PLN} zł brutto = <strong style="color:#37352f;">${safeTotal}</strong></p>
+              <p style="margin:0 0 22px 0;line-height:1.55;"><strong style="color:#37352f;">Zamówienie:</strong><br/><span style="color:#37352f;">${safeOrder}</span></p>
               <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 8px 0;">
                 <tr>
                   <td style="border-radius:10px;background:#d97757;">

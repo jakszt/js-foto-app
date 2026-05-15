@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Camera, CalendarDays, Loader2, Minus, Plus } from "lucide-react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import posthog from "posthog-js";
 
@@ -22,6 +24,13 @@ import {
   type CheckoutFormValues,
 } from "@/lib/checkout-schema";
 import {
+  checkoutStepFromPathname,
+  FOTO_PATH,
+  FOTO_ROZLICZENIE_PATH,
+  FOTO_UMOW_SIE_PATH,
+} from "@/lib/foto-routes";
+import {
+  billablePhotoCount,
   formatPln,
   PHOTO_COUNT_MAX,
   PHOTO_COUNT_MIN,
@@ -46,6 +55,16 @@ const defaultValues: CheckoutFormValues = {
   nip: "",
 };
 
+function gratisPhotosUpperWord(count: number): string {
+  if (count === 1) return "ZDJĘCIE";
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return "ZDJĘCIA";
+  }
+  return "ZDJĘĆ";
+}
+
 function isFormComplete(values: CheckoutFormValues): boolean {
   const n = values.photoCount;
   if (
@@ -68,10 +87,15 @@ function isFormComplete(values: CheckoutFormValues): boolean {
 }
 
 export function PhotographerCheckout() {
-  const [step, setStep] = useState<Step>("tiles");
+  const pathname = usePathname();
+  const router = useRouter();
+  const [paying, setPaying] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const billingOpenedAtRef = useRef<number | null>(null);
   const honeypotRef = useRef<HTMLInputElement>(null);
+
+  const routeStep = checkoutStepFromPathname(pathname);
+  const step: Step = paying ? "paying" : routeStep;
 
   const form = useForm<CheckoutFormValues>({
     resolver: zodResolver(checkoutFormSchema),
@@ -85,26 +109,36 @@ export function PhotographerCheckout() {
       ? watched.photoCount
       : defaultValues.photoCount;
   const totalBrutto = totalGrossPln(photoCount);
+  const billablePhotos = billablePhotoCount(photoCount);
+  const freePhotos = photoCount - billablePhotos;
   const complete = useMemo(() => {
     const merged = { ...defaultValues, ...watched } as CheckoutFormValues;
     return isFormComplete(merged);
   }, [watched]);
 
   useEffect(() => {
-    if (step !== "billing") return;
+    if (paying || routeStep !== "billing") return;
     if (billingOpenedAtRef.current == null) {
       billingOpenedAtRef.current = Date.now();
     }
-  }, [step]);
+  }, [paying, routeStep]);
+
+  useEffect(() => {
+    if (!paying) return;
+    if (checkoutStepFromPathname(pathname) !== "billing") {
+      setPaying(false);
+    }
+  }, [paying, pathname]);
 
   async function onPay(values: CheckoutFormValues) {
     setApiError(null);
-    setStep("paying");
+    setPaying(true);
 
     posthog.identify(values.email);
     posthog.capture("checkout_payment_submitted", {
       is_company: values.isCompany,
-      photo_count: values.photoCount,
+          photo_count: values.photoCount,
+          billable_photo_count: billablePhotoCount(values.photoCount),
     });
 
     try {
@@ -150,8 +184,13 @@ export function PhotographerCheckout() {
       posthog.capture("checkout_payment_error", { error: message });
       posthog.captureException(e);
       setApiError(message);
-      setStep("billing");
+      setPaying(false);
     }
+  }
+
+  function goToFotoTiles() {
+    setPaying(false);
+    router.push(FOTO_PATH);
   }
 
   return (
@@ -165,18 +204,15 @@ export function PhotographerCheckout() {
           Sztuba
         </h1>
         <p className="max-w-xl text-sm text-muted-foreground sm:text-base">
-          Wybierz, co Cię dotyczy — po sesji rozliczymy zdjęcia przez bezpieczną płatność online
-          (inFakt).
+          Szukasz dobrych kadrów? Wybierz opcję:
         </p>
       </header>
 
       {step === "tiles" ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          <button
-            type="button"
+          <Link
+            href={FOTO_ROZLICZENIE_PATH}
             onClick={() => {
-              billingOpenedAtRef.current = Date.now();
-              setStep("billing");
               posthog.capture("checkout_session_started");
             }}
             className={cn(
@@ -190,19 +226,18 @@ export function PhotographerCheckout() {
                 </div>
                 <CardTitle className="text-lg">Jestem po sesji</CardTitle>
                 <CardDescription>
-                  Dane do faktury i przejście do szybkiej płatności online.
+                  Dane rozliczeniowe i przejście do szybkiej płatności online.
                 </CardDescription>
               </CardHeader>
               <CardFooter className="text-sm font-medium text-[color-mix(in_oklab,var(--accent)_78%,var(--foreground))]">
                 Rozpocznij →
               </CardFooter>
             </Card>
-          </button>
+          </Link>
 
-          <button
-            type="button"
+          <Link
+            href={FOTO_UMOW_SIE_PATH}
             onClick={() => {
-              setStep("booking");
               posthog.capture("checkout_booking_opened");
             }}
             className={cn(
@@ -223,7 +258,7 @@ export function PhotographerCheckout() {
                 Umów termin →
               </CardFooter>
             </Card>
-          </button>
+          </Link>
         </div>
       ) : null}
 
@@ -235,8 +270,8 @@ export function PhotographerCheckout() {
               variant="ghost"
               className="w-fit -translate-x-2 text-muted-foreground"
               onClick={() => {
-                setStep("tiles");
                 posthog.capture("checkout_booking_back");
+                goToFotoTiles();
               }}
             >
               ← Wróć
@@ -270,12 +305,20 @@ export function PhotographerCheckout() {
 
       {step === "billing" ? (
         <Card className="border border-transparent shadow-md ring-1 ring-foreground/10">
-          <CardHeader>
-            <CardTitle className="text-xl">Dane do faktury</CardTitle>
-            <CardDescription>
-              Uzupełnij pola — etykiety uniosą się przy focusie, tak jak w nowoczesnych
-              formularzach.
-            </CardDescription>
+          <CardHeader className="space-y-4">
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-fit -translate-x-2 text-muted-foreground"
+              onClick={() => {
+                setApiError(null);
+                posthog.capture("checkout_back_clicked");
+                goToFotoTiles();
+              }}
+            >
+              ← Wróć
+            </Button>
+            <CardTitle className="text-xl">Dane rozliczeniowe</CardTitle>
           </CardHeader>
           <CardContent>
             <form
@@ -381,7 +424,8 @@ export function PhotographerCheckout() {
                         Ile zdjęć kupujesz?
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {PHOTO_GROSS_PLN} zł brutto / szt. (VAT 23%)
+                        {PHOTO_GROSS_PLN} zł brutto / szt. płatna (VAT 23%). Promocja 3+1: co 4.
+                        zdjęcie gratis.
                       </span>
                     </div>
                     <div
@@ -430,7 +474,9 @@ export function PhotographerCheckout() {
                       </Button>
                     </div>
                     <p id="photo-count-stepper-desc" className="sr-only">
-                      Liczba zdjęć od {PHOTO_COUNT_MIN} do {PHOTO_COUNT_MAX}
+                      Liczba zdjęć od {PHOTO_COUNT_MIN} do {PHOTO_COUNT_MAX}. Promocja 3+1: co
+                      czwarte zdjęcie w zamówieniu jest gratis; płatna sztuka {PHOTO_GROSS_PLN} zł
+                      brutto.
                     </p>
                     {form.formState.errors.photoCount ? (
                       <p className="mt-2 text-xs text-destructive">
@@ -474,13 +520,26 @@ export function PhotographerCheckout() {
               ) : null}
 
               <div
-                className="flex flex-col gap-1 rounded-lg border border-[color-mix(in_oklab,var(--accent)_25%,var(--border))] bg-[color-mix(in_oklab,var(--accent)_8%,var(--card))] px-4 py-3 sm:flex-row sm:items-baseline sm:justify-between"
+                className="flex flex-col gap-2 rounded-lg border border-[color-mix(in_oklab,var(--accent)_25%,var(--border))] bg-[color-mix(in_oklab,var(--accent)_8%,var(--card))] px-4 py-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4"
                 aria-live="polite"
               >
-                <span className="text-sm text-muted-foreground">
-                  {photoCount} × {PHOTO_GROSS_PLN} zł brutto
-                </span>
-                <span className="text-lg font-bold tabular-nums text-foreground">
+                <div className="flex flex-col gap-0.5 text-sm text-muted-foreground">
+                  {freePhotos > 0 ? (
+                    <>
+                      <span>
+                        {billablePhotos} × {PHOTO_GROSS_PLN} zł brutto
+                      </span>
+                      <span className="font-semibold uppercase tracking-wide text-foreground">
+                        + {freePhotos} {gratisPhotosUpperWord(freePhotos)} GRATIS
+                      </span>
+                    </>
+                  ) : (
+                    <span>
+                      {photoCount} × {PHOTO_GROSS_PLN} zł brutto
+                    </span>
+                  )}
+                </div>
+                <span className="text-lg font-bold tabular-nums text-foreground sm:shrink-0">
                   Razem {formatPln(totalBrutto)}
                 </span>
               </div>
@@ -491,25 +550,13 @@ export function PhotographerCheckout() {
                 </p>
               ) : null}
 
-              <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="text-muted-foreground"
-                  onClick={() => {
-                    setStep("tiles");
-                    setApiError(null);
-                    posthog.capture("checkout_back_clicked");
-                  }}
-                >
-                  ← Wróć
-                </Button>
+              <div className="w-full pt-2">
                 <Button
                   type="submit"
                   size="lg"
                   disabled={!complete || form.formState.isSubmitting}
                   className={cn(
-                    "min-w-[220px] font-semibold tracking-wide transition-[transform,box-shadow,opacity,filter] duration-300",
+                    "h-auto min-h-12 w-full py-4 text-base font-semibold tracking-wide transition-[transform,box-shadow,opacity,filter] duration-300",
                     complete
                       ? "bg-[color-mix(in_oklab,var(--accent)_92%,white)] text-[#2a241c] shadow-[0_10px_40px_-18px_color-mix(in_oklab,var(--accent)_55%,transparent)] hover:bg-[color-mix(in_oklab,var(--accent)_82%,white)]"
                       : "opacity-40 grayscale-[0.35] shadow-none"

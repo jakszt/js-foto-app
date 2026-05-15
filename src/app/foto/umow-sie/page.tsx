@@ -3,11 +3,11 @@ import type { Metadata } from "next";
 import { PhotographerCheckout } from "@/components/photographer-checkout";
 
 export const metadata: Metadata = {
-  title: "Sesje i rozliczenie — Jakub Sztuba",
+  title: "Umów sesję — Jakub Sztuba",
   description:
-    "Umów sesję zdjęciową lub opłać zdjęcia po sesji — szybka płatność online przez inFakt.",
+    "Wybierz termin sesji zdjęciowej w kalendarzu — potwierdzenie z Google Calendar.",
 };
 
-export default function FotoPage() {
+export default function FotoUmowSiePage() {
   return <PhotographerCheckout />;
 }

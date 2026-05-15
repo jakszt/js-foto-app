@@ -1,12 +1,14 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { validateCheckoutAntiBot } from "@/lib/checkout-anti-bot";
 import { persistFotoRozliczenie } from "@/lib/checkout-persistence";
 import { checkoutFormSchema } from "@/lib/checkout-schema";
 import { createInvoiceWithOnlinePayment, fetchInvoicePdfBase64 } from "@/lib/infakt";
 import {
+  billablePhotoCount,
   INFAKT_LINE_ITEM_NAME,
   lineNetTotalPln,
   PHOTO_GROSS_PLN,
+  PROMO_AVG_GROSS_FULL_GROUP_PLN,
   totalGrossPln,
   unitNetPlnFromGross,
 } from "@/lib/photo-checkout-pricing";
@@ -68,10 +70,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: anti.message }, { status: anti.status });
   }
 
-  const serviceName = INFAKT_LINE_ITEM_NAME;
+  const photoCount = parsed.data.photoCount;
+  const billable = billablePhotoCount(photoCount);
+  const freeCount = photoCount - billable;
+  const serviceName =
+    freeCount > 0
+      ? `${INFAKT_LINE_ITEM_NAME} — promocja 3+1: ${photoCount} zdjęć w zamówieniu (${billable} płatnych × ${PHOTO_GROSS_PLN} zł brutto/szt.${
+          photoCount >= 4 && photoCount % 4 === 0
+            ? `; średnio ${PROMO_AVG_GROSS_FULL_GROUP_PLN.toFixed(2).replace(".", ",")} zł brutto/szt.`
+            : ""
+        })`
+      : `${INFAKT_LINE_ITEM_NAME} — ${photoCount} szt. × ${PHOTO_GROSS_PLN} zł brutto/szt.`;
   const unitNetPln = unitNetPlnFromGross(PHOTO_GROSS_PLN);
-  const lineNet = lineNetTotalPln(parsed.data.photoCount);
-  const grossTotal = totalGrossPln(parsed.data.photoCount);
+  const lineNet = lineNetTotalPln(photoCount);
+  const grossTotal = totalGrossPln(photoCount);
 
   const baseRow = { ...parsed.data };
 
@@ -101,7 +113,7 @@ export async function POST(req: Request) {
       },
       {
         name: serviceName,
-        quantity: parsed.data.photoCount,
+        quantity: billable,
         unitNetPricePln: unitNetPln,
         taxPercent: 23,
       },
@@ -126,6 +138,7 @@ export async function POST(req: Request) {
           invoice_uuid: invoiceUuid ?? null,
           is_company: parsed.data.isCompany,
           photo_count: parsed.data.photoCount,
+          billable_photo_count: billable,
           gross_total_pln: grossTotal,
           net_line_pln: lineNet,
           ...(sessionId ? { $session_id: sessionId } : {}),
@@ -154,22 +167,27 @@ export async function POST(req: Request) {
         }
       }
 
-      const { subject, textPart, htmlPart } = buildCheckoutPaymentEmail({
-        fullName: parsed.data.fullName,
-        paymentUrl,
-        photoCount: parsed.data.photoCount,
-        totalGrossPln: grossTotal,
-        pdfAttached,
-      });
-      void sendMailjetMessage({
-        to: [{ email: parsed.data.email, name: parsed.data.fullName }],
-        subject,
-        textPart,
-        htmlPart,
-        customId: invoiceUuid ?? undefined,
-        attachments,
-      }).then((r) => {
-        if (!r.ok) console.error("[checkout] Mailjet:", r.error);
+      after(async () => {
+        try {
+          const { subject, textPart, htmlPart } = buildCheckoutPaymentEmail({
+            fullName: parsed.data.fullName,
+            paymentUrl,
+            photoCount: parsed.data.photoCount,
+            totalGrossPln: grossTotal,
+            pdfAttached,
+          });
+          const r = await sendMailjetMessage({
+            to: [{ email: parsed.data.email, name: parsed.data.fullName }],
+            subject,
+            textPart,
+            htmlPart,
+            customId: invoiceUuid ?? undefined,
+            attachments,
+          });
+          if (!r.ok) console.error("[checkout] Mailjet:", r.error);
+        } catch (e) {
+          console.error("[checkout] Mailjet pipeline:", e);
+        }
       });
     }
 
