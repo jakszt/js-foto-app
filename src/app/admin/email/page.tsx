@@ -5,6 +5,7 @@ import {
   buildCheckoutPaymentEmail,
   buildThankYouAfterPaymentEmail,
 } from "@/lib/mailjet";
+import { totalGrossPln } from "@/lib/photo-checkout-pricing";
 
 export const metadata: Metadata = {
   title: "Podgląd maili transakcyjnych",
@@ -19,7 +20,7 @@ const SAMPLE = {
   fullName: "Jan Kowalski",
   paymentUrl: "https://example.infakt.pl/platnosc/przykladowy-link",
   photoCount: 3,
-  totalGrossPln: 120,
+  totalGrossPln: totalGrossPln(3),
 } as const;
 
 function EmailPreviewBlock({
