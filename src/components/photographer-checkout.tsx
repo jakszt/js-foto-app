@@ -226,7 +226,7 @@ export function PhotographerCheckout() {
                 </div>
                 <CardTitle className="text-lg">Jestem po sesji</CardTitle>
                 <CardDescription>
-                  Dane rozliczeniowe i przejście do szybkiej płatności online.
+                  Dane rozliczeniowe — faktura w inFakcie; płatność online lub przelew.
                 </CardDescription>
               </CardHeader>
               <CardFooter className="text-sm font-medium text-[color-mix(in_oklab,var(--accent)_78%,var(--foreground))]">
@@ -565,6 +565,37 @@ export function PhotographerCheckout() {
                   OPŁAĆ ZDJĘCIA
                 </Button>
               </div>
+
+              <div
+                className="mt-5 flex flex-col items-center gap-3 border-t border-border/70 pt-5"
+                aria-label="Dostawcy płatności"
+              >
+                <p className="text-center text-[11px] leading-snug text-muted-foreground sm:text-xs">
+                  Bezpieczną i szybką płatność obsługują:
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- małe logotypy z /public */}
+                  <img
+                    src="/infakt-logo.png"
+                    alt="inFakt"
+                    width={120}
+                    height={36}
+                    className="h-7 w-auto max-w-[min(44vw,140px)] object-contain object-center"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="/autopay-logo.svg"
+                    alt="Autopay"
+                    width={142}
+                    height={36}
+                    className="h-6 w-auto max-w-[min(50vw,160px)] object-contain object-center"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </div>
+              </div>
             </form>
           </CardContent>
         </Card>
@@ -583,11 +614,12 @@ export function PhotographerCheckout() {
             </div>
             <div className="space-y-2">
               <p className="text-base font-medium text-foreground">
-                Za moment przekierujemy Cię do płatności…
+                Za moment nastąpi przekierowanie…
               </p>
               <p className="max-w-md text-sm text-muted-foreground">
-                Tworzymy fakturę w inFakcie i otwieramy bezpieczny link Autopay / szybkiej płatności
-                zgodnie z{" "}
+                Tworzymy fakturę w inFakcie. Gdy konto ma włączoną szybką płatność online,
+                otworzymy bezpieczny link do opłacenia; w przeciwnym razie zobaczysz stronę z
+                danymi do przelewu — zgodnie z{" "}
                 <a
                   className="underline underline-offset-4 hover:text-foreground"
                   href="https://docs.infakt.pl/#6e227498-f889-48cd-b344-c2ed3a748463"

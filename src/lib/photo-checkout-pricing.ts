@@ -1,9 +1,11 @@
-/** Cena jednego płatnego zdjęcia — brutto (PLN). */
+/** Cena katalogowa jednej **płatnej** sztuki przed promocją 3+1 — brutto (PLN).
+ * Suma brutto = płatne sztuki × 30 zł; **średnia brutto/szt.** = suma ÷ wszystkie zdjęcia
+ * (np. 4 zdj.: 90 zł ÷ 4 = 22,50 zł; 5 zdj.: 120 zł ÷ 5 = 24 zł).
+ */
 export const PHOTO_GROSS_PLN = 30;
 
 /**
- * Średnia cena brutto za sztukę przy pełnych zestawach 4 zdjęć (3+1).
- * Na fakturze przy wielokrotnościach 4 szt. podajemy tę wartość w opisie pozycji.
+ * Średnia cena brutto za sztukę przy pełnych wielokrotnościach 4 zdjęć (3+1) = 22,50 zł.
  */
 export const PROMO_AVG_GROSS_FULL_GROUP_PLN = 22.5;
 
@@ -16,9 +18,14 @@ export const PHOTO_VAT_PERCENT = 23 as const;
 export const INFAKT_LINE_ITEM_NAME =
   "Przygotowanie wizualnych materiałów promocyjnych";
 
-/** Promocja 3+1: co 4. zdjęcie gratis → liczba płatnych sztuk. */
+/** Promocja 3+1: co 4. zdjęcie gratis — liczba **płatnych** sztuk (× 30 zł brutto każda). */
 export function billablePhotoCount(photoCount: number): number {
   return photoCount - Math.floor(photoCount / 4);
+}
+
+/** Suma brutto zamówienia (płatne sztuki × cena katalogowa). */
+export function totalGrossPln(photoCount: number): number {
+  return billablePhotoCount(photoCount) * PHOTO_GROSS_PLN;
 }
 
 /** Netto jednej sztuki przy danej stawce VAT (zaokrąglenie do grosza). */
@@ -29,14 +36,10 @@ export function unitNetPlnFromGross(
   return Math.round((grossPln / (1 + vatPercent / 100)) * 100) / 100;
 }
 
-/** Suma netto całej pozycji (z sumy brutto po promocji). */
+/** Suma netto całej pozycji (z sumy brutto po promocji, VAT 23%). */
 export function lineNetTotalPln(photoCount: number): number {
   const gross = totalGrossPln(photoCount);
   return Math.round((gross / (1 + PHOTO_VAT_PERCENT / 100)) * 100) / 100;
-}
-
-export function totalGrossPln(photoCount: number): number {
-  return billablePhotoCount(photoCount) * PHOTO_GROSS_PLN;
 }
 
 /** Średnia cena brutto za jedno zdjęcie w zamówieniu (do podsumowania UI / maili). */

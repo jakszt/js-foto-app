@@ -1,3 +1,5 @@
+import { infaktInvoiceTransferFields } from "@/lib/invoice-transfer-details";
+
 export type CreateInvoiceInput = {
   fullName: string;
   email: string;
@@ -18,17 +20,24 @@ function extractPaymentLink(payload: unknown): string | null {
 
   const ext = invoice.extensions;
   if (ext && typeof ext === "object") {
-    const payments = (ext as Record<string, unknown>).payments;
+    const extRec = ext as Record<string, unknown>;
+    const payments = extRec.payments;
     if (payments && typeof payments === "object") {
       const link = (payments as Record<string, unknown>).link;
       if (typeof link === "string" && link.length > 0) return link;
+    }
+    const po = extRec.payment_online;
+    if (po && typeof po === "object") {
+      const pol = (po as Record<string, unknown>).link;
+      if (typeof pol === "string" && pol.length > 0) return pol;
     }
   }
 
   const direct =
     invoice.online_payment_url ??
     invoice.payment_url ??
-    invoice.fast_payment_url;
+    invoice.fast_payment_url ??
+    invoice.online_viewer_href;
   if (typeof direct === "string" && direct.length > 0) return direct;
 
   return null;
@@ -74,8 +83,10 @@ export async function createInvoiceWithOnlinePayment(
     name: string;
     /** Liczba sztuk (np. zdjęć). */
     quantity: number;
-    /** Cena netto jednej sztuki w PLN (API inFakt — grosze). */
+    /** Cena netto jednej sztuki w PLN (grosze w API). Gdy podano `lineNetTotalPln`, i tak wyliczamy `unit_net_price` z sumy linii ÷ ilość. */
     unitNetPricePln: number;
+    /** Pełna suma netto linii (PLN) — nadpisuje unit×qty, żeby zgadzała się z sumą brutto po promocji. */
+    lineNetTotalPln?: number;
     taxPercent: 23;
   },
   dates: {
@@ -85,8 +96,20 @@ export async function createInvoiceWithOnlinePayment(
     sellDate: string;
     /** Termin płatności (YYYY-MM-DD). */
     paymentTo: string;
+  },
+  options?: {
+    /**
+     * Gdy inFakt nie zwróci linku szybkiej płatności (np. sama płatność przelewem),
+     * przekierowanie checkoutu na ten adres (np. strona z danymi do przelewu).
+     */
+    fallbackCheckoutAbsoluteUrl?: string | null;
   }
-): Promise<{ paymentUrl: string; invoiceUuid?: string }> {
+): Promise<{
+  paymentUrl: string;
+  invoiceUuid?: string;
+  /** True, gdy użyto `fallbackCheckoutAbsoluteUrl` zamiast linku z inFaktu. */
+  checkoutViaTransferFallback: boolean;
+}> {
   const normalizedBase = baseUrl.replace(/\/$/, "");
 
   const clientBody: Record<string, unknown> = {
@@ -126,8 +149,15 @@ export async function createInvoiceWithOnlinePayment(
   }
 
   const qty = Math.max(1, Math.floor(service.quantity));
-  const unitNetGrosze = Math.round(service.unitNetPricePln * 100);
-  const lineNetGrosze = Math.round(unitNetGrosze * qty);
+  let lineNetGrosze: number;
+  let unitNetGrosze: number;
+  if (service.lineNetTotalPln != null) {
+    lineNetGrosze = Math.round(service.lineNetTotalPln * 100);
+    unitNetGrosze = Math.round(lineNetGrosze / qty);
+  } else {
+    unitNetGrosze = Math.round(service.unitNetPricePln * 100);
+    lineNetGrosze = Math.round(unitNetGrosze * qty);
+  }
 
   const invoiceBody = {
     kind: "vat",
@@ -135,6 +165,7 @@ export async function createInvoiceWithOnlinePayment(
     sell_date: dates.sellDate,
     payment_to: dates.paymentTo,
     client_id: clientId,
+    ...infaktInvoiceTransferFields(),
     services: [
       {
         name: service.name,
@@ -163,11 +194,18 @@ export async function createInvoiceWithOnlinePayment(
   }
 
   const invJson = await readJsonBody(invRes);
-  const paymentUrl = extractPaymentLink(invJson);
+  let paymentUrl = extractPaymentLink(invJson);
+  let checkoutViaTransferFallback = false;
+  const fallback = options?.fallbackCheckoutAbsoluteUrl?.trim();
+
+  if (!paymentUrl && fallback) {
+    paymentUrl = fallback;
+    checkoutViaTransferFallback = true;
+  }
 
   if (!paymentUrl) {
     throw new Error(
-      "inFakt: brak linku do szybkiej płatności w odpowiedzi. Włącz płatności online (np. Autopay) w inFakcie — dokumentacja: https://docs.infakt.pl/"
+      "inFakt: brak linku do płatności w odpowiedzi. Skonfiguruj adres witryny (nagłówki Host / NEXT_PUBLIC_VERCEL_URL), aby działało przekierowanie po przelewie, albo włącz płatności online w inFakcie — https://docs.infakt.pl/"
     );
   }
 
@@ -178,7 +216,7 @@ export async function createInvoiceWithOnlinePayment(
       : flat;
   const uuid = typeof inner.uuid === "string" ? inner.uuid : undefined;
 
-  return { paymentUrl, invoiceUuid: uuid };
+  return { paymentUrl, invoiceUuid: uuid, checkoutViaTransferFallback };
 }
 
 /** PDF faktury do załącznika w mailu (GET …/pdf.json). */

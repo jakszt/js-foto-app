@@ -1,6 +1,9 @@
 /** Trasy sekcji /foto — osobne URL pod przycisk „wstecz” w przeglądarce. */
 export const FOTO_PATH = "/foto" as const;
 export const FOTO_ROZLICZENIE_PATH = "/foto/rozliczenie" as const;
+/** Po checkoutcie, gdy brak linku online z inFaktu — strona z danymi przelewu. */
+export const FOTO_ROZLICZENIE_DZIEKUJEMY_PATH =
+  "/foto/rozliczenie/dziekujemy" as const;
 export const FOTO_UMOW_SIE_PATH = "/foto/umow-sie" as const;
 
 export type CheckoutRouteStep = "tiles" | "booking" | "billing";

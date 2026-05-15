@@ -4,6 +4,10 @@ import {
   wrapTransactionalHtml,
 } from "@/lib/mailjet-templates";
 import {
+  formatIbanSpaced,
+  getInvoiceTransferConfig,
+} from "@/lib/invoice-transfer-details";
+import {
   billablePhotoCount,
   formatPln,
   PHOTO_GROSS_PLN,
@@ -105,8 +109,21 @@ export function buildCheckoutPaymentEmail(opts: {
   photoCount: number;
   totalGrossPln: number;
   pdfAttached: boolean;
+  /**
+   * Gdy checkout nie dostał linku Autopay z inFaktu — faktura na przelew;
+   * `paymentUrl` to zwykle strona z powtórzeniem danych konta.
+   */
+  viaTransferOnly?: boolean;
 }): { subject: string; textPart: string; htmlPart: string } {
-  const subject = "Link do płatności za zdjęcia";
+  const viaTransfer = opts.viaTransferOnly === true;
+  const { bankName, bankAccountCompact } = getInvoiceTransferConfig();
+  const ibanDisplay = formatIbanSpaced(bankAccountCompact);
+  const safeBank = escapeHtml(bankName);
+  const safeIban = escapeHtml(ibanDisplay);
+
+  const subject = viaTransfer
+    ? "Faktura za zdjęcia — płatność przelewem"
+    : "Link do płatności za zdjęcia";
   const totalFmt = formatPlnMoney(opts.totalGrossPln);
   const zdj = zdjecieWord(opts.photoCount);
   const safeName = escapeHtml(opts.fullName);
@@ -118,21 +135,44 @@ export function buildCheckoutPaymentEmail(opts: {
     opts.photoCount > 0 ? opts.totalGrossPln / opts.photoCount : PHOTO_GROSS_PLN;
   const orderPlain =
     free > 0
-      ? `${opts.photoCount} ${zdj}: ${billable} płatnych × ${PHOTO_GROSS_PLN} zł brutto (${free} gratis) = ${totalFmt}. ${
+      ? `${opts.photoCount} ${zdj}: ${billable} płatnych × ${PHOTO_GROSS_PLN} zł brutto / szt (${free} gratis) = ${totalFmt} brutto. ${
           opts.photoCount >= 4 && opts.photoCount % 4 === 0
             ? `Średnio ${PROMO_AVG_GROSS_FULL_GROUP_PLN.toFixed(2).replace(".", ",")} zł brutto/szt. (promocja 3+1).`
             : `Średnio ${formatPln(avgBrutto)} brutto/szt. (promocja 3+1).`
         }`
-      : `${opts.photoCount} ${zdj} × ${PHOTO_GROSS_PLN} zł brutto = ${totalFmt}`;
+      : `${opts.photoCount} ${zdj} × ${PHOTO_GROSS_PLN} zł brutto / szt = ${totalFmt} brutto`;
   const safeOrder = escapeHtml(orderPlain);
 
   const pdfNote = opts.pdfAttached
-    ? "\n\nW załączeniu przesyłamy fakturę w formacie PDF."
+    ? "\n\nFakturę w PDF znajdziesz w załączniku do tej wiadomości."
     : "";
 
-  const textBody = `Cześć ${opts.fullName},
+  const transferBlockPlain = viaTransfer
+    ? `
 
-dziękujemy — przygotowaliśmy fakturę i płatność online.
+Płatność: przelew na konto
+Bank: ${bankName}
+IBAN: ${ibanDisplay}
+`
+    : "";
+
+  const textBody = viaTransfer
+    ? `Cześć ${opts.fullName},
+
+Dziękuję, że zdecydowałeś/aś się zakupić moje zdjęcia — mam nadzieję, że będą dla Ciebie wspaniałą pamiątką. Wystawiłem fakturę z formą płatności „przelew”.
+
+Zamówienie: ${orderPlain}
+${transferBlockPlain}
+Szczegóły i podsumowanie znajdziesz też tutaj:
+${opts.paymentUrl}
+${pdfNote}
+
+Jeśli to nie Ty wypełniałeś formularz, zignoruj tę wiadomość.
+
+— Jakub`
+    : `Cześć ${opts.fullName},
+
+Dziękuję, że zdecydowałeś/aś się zakupić moje zdjęcia — mam nadzieję, że będą dla Ciebie wspaniałą pamiątką. Przygotowałem fakturę i płatność online.
 
 Zamówienie: ${orderPlain}
 
@@ -147,12 +187,36 @@ Jeśli to nie Ty wypełniałeś formularz, zignoruj tę wiadomość.
   const textPart = appendFooterToPlainText(textBody);
 
   const pdfHtml = opts.pdfAttached
-    ? `<p style="margin:20px 0 0 0;font-size:13px;line-height:1.5;color:#6f6a62;">Fakturę w PDF dołączyliśmy do tej wiadomości.</p>`
+    ? `<p style="margin:20px 0 0 0;font-size:13px;line-height:1.5;color:#6f6a62;">Fakturę w PDF znajdziesz w załączniku do tej wiadomości.</p>`
     : "";
 
-  const innerHtml = `
+  const transferBlockHtml = viaTransfer
+    ? `<div style="margin:0 0 22px 0;padding:14px 16px;border-radius:10px;background:#f5f3ef;border:1px solid #e6e2da;">
+              <p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#8a857c;">Dane do przelewu</p>
+              <p style="margin:0 0 6px 0;font-size:14px;line-height:1.5;color:#37352f;"><strong>Bank:</strong> ${safeBank}</p>
+              <p style="margin:0;font-size:14px;line-height:1.5;color:#37352f;"><strong>IBAN:</strong> <span style="font-family:ui-monospace,monospace;font-weight:600;">${safeIban}</span></p>
+            </div>`
+    : "";
+
+  const innerHtml = viaTransfer
+    ? `
               <p style="margin:0 0 14px 0;">Cześć <strong>${safeName}</strong>,</p>
-              <p style="margin:0 0 18px 0;">Dziękujemy — przygotowaliśmy fakturę i płatność online.</p>
+              <p style="margin:0 0 18px 0;">Dziękuję, że zdecydowałeś/aś się zakupić moje zdjęcia — mam nadzieję, że będą dla Ciebie wspaniałą pamiątką. Wystawiłem fakturę z formą płatności <strong>przelew</strong>.</p>
+              <p style="margin:0 0 22px 0;line-height:1.55;"><strong style="color:#37352f;">Zamówienie:</strong><br/><span style="color:#37352f;">${safeOrder}</span></p>
+              ${transferBlockHtml}
+              <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 8px 0;">
+                <tr>
+                  <td style="border-radius:10px;background:#d97757;">
+                    <a href="${safeUrl}" style="display:inline-block;padding:14px 22px;font-size:14px;font-weight:600;color:#fffdf9;text-decoration:none;">Strona z danymi</a>
+                  </td>
+                </tr>
+              </table>
+              ${pdfHtml}
+              <p style="margin:22px 0 0 0;font-size:13px;line-height:1.5;color:#8a857c;">Jeśli to nie Ty wypełniałeś formularz, zignoruj tę wiadomość.</p>
+              <p style="margin:16px 0 0 0;font-size:14px;color:#37352f;">— Jakub</p>`
+    : `
+              <p style="margin:0 0 14px 0;">Cześć <strong>${safeName}</strong>,</p>
+              <p style="margin:0 0 18px 0;">Dziękuję, że zdecydowałeś/aś się zakupić moje zdjęcia — mam nadzieję, że będą dla Ciebie wspaniałą pamiątką. Przygotowałem fakturę i płatność online.</p>
               <p style="margin:0 0 22px 0;line-height:1.55;"><strong style="color:#37352f;">Zamówienie:</strong><br/><span style="color:#37352f;">${safeOrder}</span></p>
               <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 8px 0;">
                 <tr>
@@ -166,7 +230,9 @@ Jeśli to nie Ty wypełniałeś formularz, zignoruj tę wiadomość.
               <p style="margin:16px 0 0 0;font-size:14px;color:#37352f;">— Jakub</p>`;
 
   const htmlPart = wrapTransactionalHtml(innerHtml, {
-    preheader: `Płatność online — ${totalFmt}, ${opts.photoCount} ${zdj}.`,
+    preheader: viaTransfer
+      ? `Przelew — ${totalFmt}, ${opts.photoCount} ${zdj}.`
+      : `Płatność online — ${totalFmt}, ${opts.photoCount} ${zdj}.`,
   });
 
   return { subject, textPart, htmlPart };

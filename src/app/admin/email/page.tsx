@@ -76,6 +76,12 @@ export default async function AdminEmailPreviewPage({
     ...SAMPLE,
     pdfAttached: false,
   });
+  const checkoutTransfer = buildCheckoutPaymentEmail({
+    ...SAMPLE,
+    paymentUrl: "https://example.com/foto/rozliczenie/dziekujemy",
+    pdfAttached: true,
+    viaTransferOnly: true,
+  });
   const thankYou = buildThankYouAfterPaymentEmail({
     fullName: SAMPLE.fullName,
   });
@@ -118,7 +124,14 @@ export default async function AdminEmailPreviewPage({
       />
 
       <EmailPreviewBlock
-        title="3. Podziękowanie po opłaceniu"
+        title="3. Faktura na przelew (bez linku Autopay z inFaktu)"
+        description="Gdy API nie zwraca linku szybkiej płatności — mail z danymi konta i przyciskiem do strony podziękowania."
+        subject={checkoutTransfer.subject}
+        html={checkoutTransfer.htmlPart}
+      />
+
+      <EmailPreviewBlock
+        title="4. Podziękowanie po opłaceniu"
         description="Webhook inFakt — zdarzenie invoice_paid."
         subject={thankYou.subject}
         html={thankYou.htmlPart}

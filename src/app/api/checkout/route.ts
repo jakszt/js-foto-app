@@ -1,14 +1,13 @@
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { validateCheckoutAntiBot } from "@/lib/checkout-anti-bot";
 import { persistFotoRozliczenie } from "@/lib/checkout-persistence";
 import { checkoutFormSchema } from "@/lib/checkout-schema";
+import { FOTO_ROZLICZENIE_DZIEKUJEMY_PATH } from "@/lib/foto-routes";
 import { createInvoiceWithOnlinePayment, fetchInvoicePdfBase64 } from "@/lib/infakt";
 import {
   billablePhotoCount,
   INFAKT_LINE_ITEM_NAME,
   lineNetTotalPln,
-  PHOTO_GROSS_PLN,
-  PROMO_AVG_GROSS_FULL_GROUP_PLN,
   totalGrossPln,
   unitNetPlnFromGross,
 } from "@/lib/photo-checkout-pricing";
@@ -21,6 +20,41 @@ import {
 import type { PostHog } from "posthog-node";
 
 import { getOptionalPostHog } from "@/lib/posthog-server";
+
+function absoluteTransferThankYouUrl(req: Request): string | null {
+  const path = FOTO_ROZLICZENIE_DZIEKUJEMY_PATH;
+  const site = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (site) {
+    try {
+      return new URL(path, site).href;
+    } catch {
+      /* continue */
+    }
+  }
+  const vercel =
+    process.env.VERCEL_URL?.trim() || process.env.NEXT_PUBLIC_VERCEL_URL?.trim();
+  if (vercel) {
+    const base = vercel.startsWith("http") ? vercel : `https://${vercel}`;
+    try {
+      return new URL(path, base).href;
+    } catch {
+      /* continue */
+    }
+  }
+  const xfHost = req.headers.get("x-forwarded-host");
+  const host =
+    xfHost?.split(",")[0]?.trim() || req.headers.get("host")?.trim() || "";
+  if (!host) return null;
+  const proto =
+    (req.headers.get("x-forwarded-proto") ?? "https")
+      .split(",")[0]
+      ?.trim() || "https";
+  try {
+    return new URL(path, `${proto}://${host}`).href;
+  } catch {
+    return null;
+  }
+}
 
 async function shutdownPosthogSafely(
   client: PostHog | null,
@@ -72,18 +106,11 @@ export async function POST(req: Request) {
 
   const photoCount = parsed.data.photoCount;
   const billable = billablePhotoCount(photoCount);
-  const freeCount = photoCount - billable;
-  const serviceName =
-    freeCount > 0
-      ? `${INFAKT_LINE_ITEM_NAME} — promocja 3+1: ${photoCount} zdjęć w zamówieniu (${billable} płatnych × ${PHOTO_GROSS_PLN} zł brutto/szt.${
-          photoCount >= 4 && photoCount % 4 === 0
-            ? `; średnio ${PROMO_AVG_GROSS_FULL_GROUP_PLN.toFixed(2).replace(".", ",")} zł brutto/szt.`
-            : ""
-        })`
-      : `${INFAKT_LINE_ITEM_NAME} — ${photoCount} szt. × ${PHOTO_GROSS_PLN} zł brutto/szt.`;
-  const unitNetPln = unitNetPlnFromGross(PHOTO_GROSS_PLN);
-  const lineNet = lineNetTotalPln(photoCount);
+  const serviceName = INFAKT_LINE_ITEM_NAME;
   const grossTotal = totalGrossPln(photoCount);
+  const lineNet = lineNetTotalPln(photoCount);
+  const avgGrossPerPhoto = grossTotal / photoCount;
+  const unitNetPln = unitNetPlnFromGross(avgGrossPerPhoto);
 
   const baseRow = { ...parsed.data };
 
@@ -99,7 +126,12 @@ export async function POST(req: Request) {
   const posthog = getOptionalPostHog();
 
   try {
-    const { paymentUrl, invoiceUuid } = await createInvoiceWithOnlinePayment(
+    const transferThankYou = absoluteTransferThankYouUrl(req);
+    const {
+      paymentUrl,
+      invoiceUuid,
+      checkoutViaTransferFallback,
+    } = await createInvoiceWithOnlinePayment(
       apiKey,
       baseUrl,
       {
@@ -113,15 +145,17 @@ export async function POST(req: Request) {
       },
       {
         name: serviceName,
-        quantity: billable,
+        quantity: photoCount,
         unitNetPricePln: unitNetPln,
+        lineNetTotalPln: lineNet,
         taxPercent: 23,
       },
       {
         invoiceDate: invoiceDay,
         sellDate: invoiceDay,
         paymentTo,
-      }
+      },
+      { fallbackCheckoutAbsoluteUrl: transferThankYou }
     );
 
     await persistFotoRozliczenie({
@@ -141,6 +175,7 @@ export async function POST(req: Request) {
           billable_photo_count: billable,
           gross_total_pln: grossTotal,
           net_line_pln: lineNet,
+          checkout_via_transfer_fallback: checkoutViaTransferFallback,
           ...(sessionId ? { $session_id: sessionId } : {}),
         },
       });
@@ -167,31 +202,36 @@ export async function POST(req: Request) {
         }
       }
 
-      after(async () => {
-        try {
-          const { subject, textPart, htmlPart } = buildCheckoutPaymentEmail({
-            fullName: parsed.data.fullName,
-            paymentUrl,
-            photoCount: parsed.data.photoCount,
-            totalGrossPln: grossTotal,
-            pdfAttached,
-          });
-          const r = await sendMailjetMessage({
-            to: [{ email: parsed.data.email, name: parsed.data.fullName }],
-            subject,
-            textPart,
-            htmlPart,
-            customId: invoiceUuid ?? undefined,
-            attachments,
-          });
-          if (!r.ok) console.error("[checkout] Mailjet:", r.error);
-        } catch (e) {
-          console.error("[checkout] Mailjet pipeline:", e);
-        }
-      });
+      // Nie używamy `after()` — na Vercelu zadania po wysłaniu odpowiedzi często nie
+      // domykają się na czas; wysyłka musi zakończyć się przed returnem JSON.
+      try {
+        const { subject, textPart, htmlPart } = buildCheckoutPaymentEmail({
+          fullName: parsed.data.fullName,
+          paymentUrl,
+          photoCount: parsed.data.photoCount,
+          totalGrossPln: grossTotal,
+          pdfAttached,
+          viaTransferOnly: checkoutViaTransferFallback,
+        });
+        const r = await sendMailjetMessage({
+          to: [{ email: parsed.data.email, name: parsed.data.fullName }],
+          subject,
+          textPart,
+          htmlPart,
+          customId: invoiceUuid ?? undefined,
+          attachments,
+        });
+        if (!r.ok) console.error("[checkout] Mailjet:", r.error);
+      } catch (e) {
+        console.error("[checkout] Mailjet pipeline:", e);
+      }
     }
 
-    return NextResponse.json({ paymentUrl, invoiceUuid });
+    return NextResponse.json({
+      paymentUrl,
+      invoiceUuid,
+      checkoutViaTransferFallback,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Nieznany błąd";
     await persistFotoRozliczenie({
