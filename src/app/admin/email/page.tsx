@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import {
+  buildFotoPodgladConfirmationEmail,
+  buildFotoPodgladNotifyEmail,
+} from "@/lib/foto-podglad-email";
+import {
   buildCheckoutPaymentEmail,
   buildPostPaymentGalleryEmail,
 } from "@/lib/mailjet";
@@ -87,6 +91,15 @@ export default async function AdminEmailPreviewPage({
     email: "jan.kowalski@example.com",
     galleryUrl: "https://jakubsztuba.pl/foto/galeria?email=jan.kowalski%40example.com",
   });
+  const fotoPodgladConfirmation = buildFotoPodgladConfirmationEmail({
+    fullName: SAMPLE.fullName,
+  });
+  const fotoPodgladNotify = buildFotoPodgladNotifyEmail({
+    fullName: SAMPLE.fullName,
+    email: "jan.kowalski@example.com",
+    dogName: "Burek",
+    photoFilename: "burek-zdjecie.jpg",
+  });
 
   return (
     <main className="mx-auto min-h-screen max-w-4xl space-y-12 px-4 py-10 sm:px-6">
@@ -137,6 +150,20 @@ export default async function AdminEmailPreviewPage({
         description="Webhook inFakt invoice_paid: link do /foto/galeria?email=…"
         subject={postPaymentGallery.subject}
         html={postPaymentGallery.htmlPart}
+      />
+
+      <EmailPreviewBlock
+        title="5. Chcę zobaczyć zdjęcia! — powiadomienie dla Ciebie"
+        description="Na jakub.sztuba@gmail.com po każdym zgłoszeniu z kafelka /foto (ze zdjęciem psa w załączniku)."
+        subject={fotoPodgladNotify.subject}
+        html={fotoPodgladNotify.htmlPart}
+      />
+
+      <EmailPreviewBlock
+        title="6. Chcę zobaczyć zdjęcia! — potwierdzenie dla klienta"
+        description="Na adres e-mail z formularza po wysłaniu /foto/podglad."
+        subject={fotoPodgladConfirmation.subject}
+        html={fotoPodgladConfirmation.htmlPart}
       />
 
       <footer className="border-t border-border pt-8 text-xs text-muted-foreground">

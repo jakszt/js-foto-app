@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Camera, CalendarDays, Loader2, Minus, Plus } from "lucide-react";
+import { Camera, CalendarDays, Images, Loader2, Minus, Plus } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import posthog from "posthog-js";
 
+import { DogPhotoDropzone } from "@/components/dog-photo-dropzone";
 import { FloatingField } from "@/components/floating-field";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,9 +27,15 @@ import {
 import {
   checkoutStepFromPathname,
   FOTO_PATH,
+  FOTO_PODGLAD_PATH,
   FOTO_ROZLICZENIE_PATH,
   FOTO_UMOW_SIE_PATH,
 } from "@/lib/foto-routes";
+import {
+  fotoPodgladFileError,
+  fotoPodgladFormSchema,
+  type FotoPodgladFormValues,
+} from "@/lib/foto-podglad-schema";
 import {
   billablePhotoCount,
   formatPln,
@@ -42,7 +49,13 @@ import { cn } from "@/lib/utils";
 const GOOGLE_BOOKING_IFRAME_SRC =
   "https://calendar.google.com/calendar/appointments/schedules/AcZssZ2xWPDJbzLQyJba_ZPPei1f80ldgfA3svVG_qweYkROYefo6aPkAUDnhWZxPAuXSQNNWI67WayH?gv=true";
 
-type Step = "tiles" | "booking" | "billing" | "paying";
+type Step = "tiles" | "preview" | "booking" | "billing" | "paying";
+
+const podgladDefaultValues: FotoPodgladFormValues = {
+  fullName: "",
+  email: "",
+  dogName: "",
+};
 
 const defaultValues: CheckoutFormValues = {
   photoCount: 1,
@@ -91,8 +104,14 @@ export function PhotographerCheckout() {
   const router = useRouter();
   const [paying, setPaying] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [previewPhoto, setPreviewPhoto] = useState<File | null>(null);
+  const [previewPhotoError, setPreviewPhotoError] = useState<string | null>(null);
+  const [previewSubmitting, setPreviewSubmitting] = useState(false);
+  const [previewSubmitted, setPreviewSubmitted] = useState(false);
   const billingOpenedAtRef = useRef<number | null>(null);
+  const previewOpenedAtRef = useRef<number | null>(null);
   const honeypotRef = useRef<HTMLInputElement>(null);
+  const previewHoneypotRef = useRef<HTMLInputElement>(null);
 
   const routeStep = checkoutStepFromPathname(pathname);
   const step: Step = paying ? "paying" : routeStep;
@@ -100,6 +119,12 @@ export function PhotographerCheckout() {
   const form = useForm<CheckoutFormValues>({
     resolver: zodResolver(checkoutFormSchema),
     defaultValues,
+    mode: "onChange",
+  });
+
+  const podgladForm = useForm<FotoPodgladFormValues>({
+    resolver: zodResolver(fotoPodgladFormSchema),
+    defaultValues: podgladDefaultValues,
     mode: "onChange",
   });
 
@@ -115,6 +140,38 @@ export function PhotographerCheckout() {
     const merged = { ...defaultValues, ...watched } as CheckoutFormValues;
     return isFormComplete(merged);
   }, [watched]);
+
+  const podgladWatched = useWatch({ control: podgladForm.control });
+  const podgladComplete = useMemo(() => {
+    const merged = {
+      ...podgladDefaultValues,
+      ...podgladWatched,
+    } as FotoPodgladFormValues;
+    return (
+      fotoPodgladFormSchema.safeParse(merged).success &&
+      fotoPodgladFileError(previewPhoto) === null
+    );
+  }, [podgladWatched, previewPhoto]);
+
+  useEffect(() => {
+    if (routeStep !== "preview") {
+      previewOpenedAtRef.current = null;
+      return;
+    }
+    if (previewOpenedAtRef.current == null) {
+      previewOpenedAtRef.current = Date.now();
+    }
+  }, [routeStep]);
+
+  useEffect(() => {
+    if (routeStep !== "preview") {
+      setPreviewSubmitted(false);
+      setPreviewPhoto(null);
+      setPreviewPhotoError(null);
+      setApiError(null);
+      podgladForm.reset(podgladDefaultValues);
+    }
+  }, [routeStep]);
 
   useEffect(() => {
     if (paying || routeStep !== "billing") return;
@@ -193,6 +250,65 @@ export function PhotographerCheckout() {
     router.push(FOTO_PATH);
   }
 
+  async function onSubmitPodglad(values: FotoPodgladFormValues) {
+    setApiError(null);
+    const fileErr = fotoPodgladFileError(previewPhoto);
+    if (fileErr) {
+      setPreviewPhotoError(fileErr);
+      return;
+    }
+    setPreviewPhotoError(null);
+    setPreviewSubmitting(true);
+
+    posthog.identify(values.email);
+    posthog.capture("foto_podglad_submitted", {
+      dog_name_length: values.dogName.length,
+    });
+
+    try {
+      const fd = new FormData();
+      fd.set("fullName", values.fullName);
+      fd.set("email", values.email);
+      fd.set("dogName", values.dogName);
+      fd.set("photo", previewPhoto!);
+      fd.set("venueUrl", previewHoneypotRef.current?.value ?? "");
+      fd.set(
+        "formStartedAt",
+        String(previewOpenedAtRef.current ?? Date.now())
+      );
+
+      const res = await fetch("/api/foto/podglad", {
+        method: "POST",
+        body: fd,
+      });
+      const raw = await res.text();
+      let data: { ok?: boolean; error?: string };
+      if (raw.trim()) {
+        try {
+          data = JSON.parse(raw) as { ok?: boolean; error?: string };
+        } catch {
+          throw new Error(
+            `Serwer zwrócił odpowiedź, której nie da się odczytać (HTTP ${res.status}).`
+          );
+        }
+      } else {
+        data = {};
+      }
+      if (!res.ok) {
+        throw new Error(data.error ?? `Żądanie nie powiodło się (HTTP ${res.status}).`);
+      }
+      posthog.capture("foto_podglad_success");
+      setPreviewSubmitted(true);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Wystąpił błąd";
+      posthog.capture("foto_podglad_error", { error: message });
+      posthog.captureException(e);
+      setApiError(message);
+    } finally {
+      setPreviewSubmitting(false);
+    }
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-10 px-4 py-14 sm:px-6">
       <header className="space-y-2 text-center sm:text-left">
@@ -211,6 +327,32 @@ export function PhotographerCheckout() {
       {step === "tiles" ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <Link
+            href={FOTO_PODGLAD_PATH}
+            onClick={() => {
+              posthog.capture("foto_podglad_opened");
+            }}
+            className={cn(
+              "group rounded-xl text-left transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--accent)_45%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:col-span-2"
+            )}
+          >
+            <Card className="h-full border border-transparent bg-card/90 shadow-sm ring-1 ring-foreground/10 transition-[box-shadow,ring-color] duration-200 group-hover:shadow-md group-hover:ring-[color-mix(in_oklab,var(--accent)_35%,var(--foreground))]/25">
+              <CardHeader>
+                <div className="mb-1 flex size-11 items-center justify-center rounded-lg bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[color-mix(in_oklab,var(--accent)_88%,var(--foreground))]">
+                  <Images className="size-5" aria-hidden />
+                </div>
+                <CardTitle className="text-lg">Chcę zobaczyć zdjęcia!</CardTitle>
+                <CardDescription>
+                  Byłeś/aś na Latających Psach w Poznaniu? Wypełnij formularz, a
+                  bezpłatnie prześlę Ci podgląd zdjęć.
+                </CardDescription>
+              </CardHeader>
+              <CardFooter className="text-sm font-medium text-[color-mix(in_oklab,var(--accent)_78%,var(--foreground))]">
+                Wypełnij formularz →
+              </CardFooter>
+            </Card>
+          </Link>
+
+          <Link
             href={FOTO_ROZLICZENIE_PATH}
             onClick={() => {
               posthog.capture("checkout_session_started");
@@ -226,7 +368,7 @@ export function PhotographerCheckout() {
                 </div>
                 <CardTitle className="text-lg">Jestem po sesji</CardTitle>
                 <CardDescription>
-                  Dane rozliczeniowe — faktura w inFakcie; płatność online lub przelew.
+                  Opłać zdjęcia online przez BLIK lub Twój bank.
                 </CardDescription>
               </CardHeader>
               <CardFooter className="text-sm font-medium text-[color-mix(in_oklab,var(--accent)_78%,var(--foreground))]">
@@ -260,6 +402,156 @@ export function PhotographerCheckout() {
             </Card>
           </Link>
         </div>
+      ) : null}
+
+      {step === "preview" ? (
+        <Card className="border border-transparent shadow-md ring-1 ring-foreground/10">
+          <CardHeader className="space-y-4">
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-fit -translate-x-2 text-muted-foreground"
+              onClick={() => {
+                posthog.capture("foto_podglad_back");
+                goToFotoTiles();
+              }}
+            >
+              ← Wróć
+            </Button>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-3">
+                <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[color-mix(in_oklab,var(--accent)_88%,var(--foreground))]">
+                  <Images className="size-5" aria-hidden />
+                </div>
+                <CardTitle className="text-xl">Chcę zobaczyć zdjęcia!</CardTitle>
+              </div>
+              <CardDescription className="text-base">
+                Byłeś/aś na Latających Psach w Poznaniu? Wypełnij formularz — prześlę
+                bezpłatny podgląd kadrów z wydarzenia.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {previewSubmitted ? (
+              <div className="space-y-4 rounded-lg border border-[color-mix(in_oklab,var(--accent)_25%,var(--border))] bg-[color-mix(in_oklab,var(--accent)_8%,var(--card))] px-4 py-6 text-center">
+                <p className="text-base font-medium text-foreground">
+                  Dziękuję za zgłoszenie!
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Wysłałem potwierdzenie na Twój e-mail. Odezwę się z podglądem zdjęć tak
+                  szybko, jak to możliwe — zwykle w ciągu kilku dni.
+                </p>
+                <Button type="button" variant="outline" onClick={goToFotoTiles}>
+                  Wróć do opcji
+                </Button>
+              </div>
+            ) : (
+              <form
+                className="relative space-y-5"
+                onSubmit={podgladForm.handleSubmit(onSubmitPodglad)}
+                noValidate
+              >
+                <div
+                  className="pointer-events-none absolute -left-[10000px] h-px w-px overflow-hidden opacity-0"
+                  aria-hidden="true"
+                >
+                  <label htmlFor="podglad-venue-url">Strona WWW firmy</label>
+                  <input
+                    ref={previewHoneypotRef}
+                    id="podglad-venue-url"
+                    type="text"
+                    name="venueUrl"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    defaultValue=""
+                  />
+                </div>
+
+                <FloatingField
+                  label="Twoje imię i nazwisko"
+                  autoComplete="name"
+                  {...podgladForm.register("fullName")}
+                  aria-invalid={!!podgladForm.formState.errors.fullName}
+                />
+                {podgladForm.formState.errors.fullName ? (
+                  <p className="-mt-3 text-xs text-destructive">
+                    {podgladForm.formState.errors.fullName.message}
+                  </p>
+                ) : null}
+
+                <FloatingField
+                  label="E-mail"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  {...podgladForm.register("email")}
+                  aria-invalid={!!podgladForm.formState.errors.email}
+                />
+                {podgladForm.formState.errors.email ? (
+                  <p className="-mt-3 text-xs text-destructive">
+                    {podgladForm.formState.errors.email.message}
+                  </p>
+                ) : null}
+
+                <FloatingField
+                  label="Imię psa z zawodów"
+                  autoComplete="off"
+                  {...podgladForm.register("dogName")}
+                  aria-invalid={!!podgladForm.formState.errors.dogName}
+                />
+                {podgladForm.formState.errors.dogName ? (
+                  <p className="-mt-3 text-xs text-destructive">
+                    {podgladForm.formState.errors.dogName.message}
+                  </p>
+                ) : null}
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-foreground">
+                    Dodaj zdjęcie psa, abym łatwiej rozpoznał modela lub modelkę :)
+                  </p>
+                  <DogPhotoDropzone
+                    value={previewPhoto}
+                    onChange={(file) => {
+                      setPreviewPhoto(file);
+                      setPreviewPhotoError(
+                        file ? fotoPodgladFileError(file) : null
+                      );
+                    }}
+                    error={previewPhotoError}
+                    disabled={previewSubmitting}
+                  />
+                </div>
+
+                {apiError ? (
+                  <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                    {apiError}
+                  </p>
+                ) : null}
+
+                <Button
+                  type="submit"
+                  size="lg"
+                  disabled={!podgladComplete || previewSubmitting}
+                  className={cn(
+                    "h-auto min-h-12 w-full py-4 text-base font-semibold tracking-wide transition-[transform,box-shadow,opacity] duration-300",
+                    podgladComplete
+                      ? "bg-[color-mix(in_oklab,var(--accent)_92%,white)] text-[#2a241c] shadow-[0_10px_40px_-18px_color-mix(in_oklab,var(--accent)_55%,transparent)] hover:bg-[color-mix(in_oklab,var(--accent)_82%,white)]"
+                      : "opacity-40"
+                  )}
+                >
+                  {previewSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
+                      Wysyłanie…
+                    </>
+                  ) : (
+                    "Wyślij zgłoszenie"
+                  )}
+                </Button>
+              </form>
+            )}
+          </CardContent>
+        </Card>
       ) : null}
 
       {step === "booking" ? (

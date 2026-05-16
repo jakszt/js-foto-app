@@ -5,9 +5,10 @@ export const FOTO_ROZLICZENIE_PATH = "/foto/rozliczenie" as const;
 export const FOTO_ROZLICZENIE_DZIEKUJEMY_PATH =
   "/foto/rozliczenie/dziekujemy" as const;
 export const FOTO_UMOW_SIE_PATH = "/foto/umow-sie" as const;
+export const FOTO_PODGLAD_PATH = "/foto/podglad" as const;
 export const FOTO_GALERIA_PATH = "/foto/galeria" as const;
 
-export type CheckoutRouteStep = "tiles" | "booking" | "billing";
+export type CheckoutRouteStep = "tiles" | "preview" | "booking" | "billing";
 
 export function checkoutStepFromPathname(
   pathname: string | null
@@ -16,6 +17,7 @@ export function checkoutStepFromPathname(
   const p = pathname.replace(/\/$/, "") || "/";
   if (p === FOTO_ROZLICZENIE_PATH) return "billing";
   if (p === FOTO_UMOW_SIE_PATH) return "booking";
+  if (p === FOTO_PODGLAD_PATH) return "preview";
   if (p.startsWith(`${FOTO_GALERIA_PATH}`)) return "tiles";
   return "tiles";
 }
