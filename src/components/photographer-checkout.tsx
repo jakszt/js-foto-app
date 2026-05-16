@@ -617,18 +617,7 @@ export function PhotographerCheckout() {
                 Za moment nastąpi przekierowanie…
               </p>
               <p className="max-w-md text-sm text-muted-foreground">
-                Tworzymy fakturę w inFakcie. Gdy konto ma włączoną szybką płatność online,
-                otworzymy bezpieczny link do opłacenia; w przeciwnym razie zobaczysz stronę z
-                danymi do przelewu — zgodnie z{" "}
-                <a
-                  className="underline underline-offset-4 hover:text-foreground"
-                  href="https://docs.infakt.pl/#6e227498-f889-48cd-b344-c2ed3a748463"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  dokumentacją inFakt
-                </a>
-                .
+                Już za chwilę przekierujemy Cię do bezpiecznej i szybkiej płatności.
               </p>
             </div>
           </CardContent>

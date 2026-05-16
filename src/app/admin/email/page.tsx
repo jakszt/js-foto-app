@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import {
   buildCheckoutPaymentEmail,
-  buildThankYouAfterPaymentEmail,
+  buildPostPaymentGalleryEmail,
 } from "@/lib/mailjet";
 
 export const metadata: Metadata = {
@@ -82,8 +82,10 @@ export default async function AdminEmailPreviewPage({
     pdfAttached: true,
     viaTransferOnly: true,
   });
-  const thankYou = buildThankYouAfterPaymentEmail({
+  const postPaymentGallery = buildPostPaymentGalleryEmail({
     fullName: SAMPLE.fullName,
+    email: "jan.kowalski@example.com",
+    galleryUrl: "https://jakubsztuba.pl/foto/galeria?email=jan.kowalski%40example.com",
   });
 
   return (
@@ -131,10 +133,10 @@ export default async function AdminEmailPreviewPage({
       />
 
       <EmailPreviewBlock
-        title="4. Podziękowanie po opłaceniu"
-        description="Webhook inFakt — zdarzenie invoice_paid."
-        subject={thankYou.subject}
-        html={thankYou.htmlPart}
+        title="4. Po opłaceniu — galeria (24h)"
+        description="Webhook inFakt invoice_paid: link do /foto/galeria?email=…"
+        subject={postPaymentGallery.subject}
+        html={postPaymentGallery.htmlPart}
       />
 
       <footer className="border-t border-border pt-8 text-xs text-muted-foreground">

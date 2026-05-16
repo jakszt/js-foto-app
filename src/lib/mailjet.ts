@@ -238,6 +238,50 @@ Jeśli to nie Ty wypełniałeś formularz, zignoruj tę wiadomość.
   return { subject, textPart, htmlPart };
 }
 
+export function buildPostPaymentGalleryEmail(opts: {
+  fullName: string;
+  email: string;
+  galleryUrl: string;
+}): { subject: string; textPart: string; htmlPart: string } {
+  const subject = "Twoje zdjęcia będą gotowe w ciągu 24h";
+  const safeName = escapeHtml(opts.fullName);
+  const safeUrl = escapeHtml(opts.galleryUrl);
+
+  const textBody = `Cześć ${opts.fullName},
+
+Twoja płatność została zaksięgowana. Twoje zdjęcia będą gotowe w ciągu 24 godzin.
+
+Odbiór zdjęć — otwórz swoją galerię:
+${opts.galleryUrl}
+
+Jeśli to nie Ty opłacałeś/aś zdjęcia, zignoruj tę wiadomość.
+
+— Jakub`;
+
+  const textPart = appendFooterToPlainText(textBody);
+
+  const innerHtml = `
+              <p style="margin:0 0 14px 0;">Cześć <strong>${safeName}</strong>,</p>
+              <p style="margin:0 0 14px 0;line-height:1.55;color:#37352f;">Twoja płatność została zaksięgowana. <strong>Twoje zdjęcia będą gotowe w ciągu 24 godzin.</strong></p>
+              <p style="margin:0 0 22px 0;font-size:14px;line-height:1.55;color:#6f6a62;">Odbiór zdjęć — przejdź do swojej galerii (ten link jest powiązany z Twoim adresem e-mail):</p>
+              <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 8px 0;">
+                <tr>
+                  <td style="border-radius:10px;background:#d97757;">
+                    <a href="${safeUrl}" style="display:inline-block;padding:14px 22px;font-size:14px;font-weight:600;color:#fffdf9;text-decoration:none;">Otwórz galerię</a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:22px 0 0 0;font-size:13px;line-height:1.5;color:#8a857c;">Jeśli to nie Ty opłacałeś/aś zdjęcia, zignoruj tę wiadomość.</p>
+              <p style="margin:16px 0 0 0;font-size:14px;color:#37352f;">— Jakub</p>`;
+
+  const htmlPart = wrapTransactionalHtml(innerHtml, {
+    preheader: "Zdjęcia w ciągu 24 h — link do galerii.",
+  });
+
+  return { subject, textPart, htmlPart };
+}
+
+/** @deprecated Zachowane dla podglądu admina — produkcja używa buildPostPaymentGalleryEmail. */
 export function buildThankYouAfterPaymentEmail(opts: {
   fullName: string;
 }): { subject: string; textPart: string; htmlPart: string } {
